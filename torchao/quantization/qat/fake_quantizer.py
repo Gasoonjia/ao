@@ -8,6 +8,8 @@ from typing import Optional
 
 import torch
 
+from torchao.float8.config import ScalingGranularity
+from torchao.float8.float8_scaling_utils import get_maybe_axiswise_dim
 from torchao.quantization.granularity import (
     PerAxis,
     PerGroup,
@@ -31,6 +33,7 @@ from .api import (
 from .utils import (
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
+    _Float8FakeQuantize,
     _Round,
 )
 
@@ -186,3 +189,27 @@ class FakeQuantizer(torch.nn.Module):
         Return a human readable representation of this `FakeQuantizer` with config details.
         """
         return "FakeQuantizer(%s)" % self.config
+
+
+class _Float8ActivationFakeQuantizer(torch.nn.Module):
+    """
+    Simple fake quantizer for float8 fake quantization, intended for activations only.
+    """
+
+    FLOAT8_DTYPE = torch.float8_e4m3fn
+
+    def __init__(self, scaling_granularity: ScalingGranularity):
+        super().__init__()
+        self.enabled = True
+        self.scaling_granularity = scaling_granularity
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.enabled:
+            return _Float8FakeQuantize.apply(
+                x,
+                self.FLOAT8_DTYPE,
+                self.scaling_granularity,
+                get_maybe_axiswise_dim(-1, self.scaling_granularity),
+            )
+        else:
+            return x

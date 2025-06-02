@@ -4,10 +4,12 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import List
+from typing import List, Optional
 
 import torch
 
+from torchao.float8.config import ScalingGranularity
+from torchao.float8.float8_utils import tensor_to_scale, to_fp8_saturated
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     fake_quantize_affine_cachemask,
@@ -64,6 +66,37 @@ class _GenericFakeQuantize(torch.autograd.Function):
     def backward(ctx, gy):
         (mask,) = ctx.saved_tensors
         return gy * mask, None, None, None, None, None, None
+
+
+class _Float8FakeQuantize(torch.autograd.Function):
+    """
+    Implementation of float8 fake quantize with backward STE.
+    """
+
+    @staticmethod
+    def forward(
+        ctx: torch.autograd.function.FunctionCtx,
+        x: torch.Tensor,
+        float8_dtype: torch.dtype,
+        scaling_granularity: ScalingGranularity,
+        axiswise_dim: Optional[int],
+    ):
+        original_dtype = x.dtype
+        scale = tensor_to_scale(
+            x,
+            float8_dtype,
+            scaling_granularity=scaling_granularity,
+            axiswise_dim=axiswise_dim,
+        )
+        x_fq = x.to(torch.float32) * scale
+        x_fq = to_fp8_saturated(x_fq, float8_dtype)
+        x_fq = x_fq.to(float8_dtype).to(original_dtype)
+        x_fq = x_fq / scale
+        return x_fq.to(original_dtype)
+
+    @staticmethod
+    def backward(ctx, gy):
+        return gy, None, None, None
 
 
 class _UnwrapAffineFakeQuantizedTensor(torch.autograd.Function):
