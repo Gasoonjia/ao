@@ -370,11 +370,21 @@ def _linear_fp8_act_fp8_weight_check(
     return check_aqt(input_tensor) and check_aqt(weight_tensor)
 
 
-def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int]):
-    """Ensures input tensor is correctly formated for _scaled_mm"""
+def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int, ...]):
+    """Ensures input tensor is correctly formatted for _scaled_mm"""
+
+    # For PerTensor quantization, scale should be a scalar or have shape [1]
+    if input_scale.numel() == 1:
+        # Already a scalar, ensure it has the right shape for _scaled_mm
+        return input_scale.reshape(1, 1)
+
+    # For per-row/block quantization, we need to handle the reshaping
     input_scale = input_scale.unsqueeze(-1)
 
     if input_scale.dim() > 2:
+        # Flatten the first N-1 dimensions to match how the data tensor is reshaped
+        # input_data.reshape(-1, input_data.shape[-1])
+        # So scale should be reshaped similarly
         input_scale = input_scale.reshape(-1, input_scale.shape[-1])
 
     return input_scale
